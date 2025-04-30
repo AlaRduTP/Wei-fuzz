@@ -399,31 +399,6 @@ enum
   /* 05 */ FAULT_NOBITS
 };
 
-#ifdef KOFTA_DEBUG
-
-static void close_kofta_debug(void) {
-
-  close(kofta_debug_fd);
-
-}
-
-static void init_kofta_debug(void) {
-
-  kofta_debug_fd = open(KOFTA_DEBUG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0600);
-  if (kofta_debug_fd == -1)
-    PFATAL("Unable to create KOFTA debug file");
-
-  atexit(close_kofta_debug);
-
-}
-
-#define kofta_debug(fmt, x...) do { \
-  if (kofta_debug_fd == -1) init_kofta_debug(); \
-  dprintf(kofta_debug_fd, fmt, x); \
-} while (0)
-
-#endif
-
 static void reset_forkserv_argvs(char **new_argvs);
 
 /* Get unix time in milliseconds */
@@ -488,6 +463,31 @@ static void shuffle_ptrs(void **ptrs, u32 cnt)
     ptrs[j] = s;
   }
 }
+
+#ifdef KOFTA_DEBUG
+
+static void close_kofta_debug(void) {
+
+  close(kofta_debug_fd);
+
+}
+
+static void init_kofta_debug(void) {
+
+  kofta_debug_fd = open(KOFTA_DEBUG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0600);
+  if (kofta_debug_fd == -1)
+    PFATAL("Unable to create KOFTA debug file");
+
+  atexit(close_kofta_debug);
+
+}
+
+#define kofta_debug(fmt, x...) do { \
+  if (kofta_debug_fd == -1) init_kofta_debug(); \
+  dprintf(kofta_debug_fd, fmt, x); \
+} while (0)
+
+#endif
 
 #ifdef HAVE_AFFINITY
 
@@ -3079,6 +3079,29 @@ static u8 calibrate_case(char **argv, struct queue_entry *q, u8 *use_mem,
   total_bitmap_size += q->bitmap_size;
   total_bitmap_entries++;
 
+  #ifdef KOFTA_DEBUG
+
+    static u8  kofta_mcov_max_depth = 0;
+    static u32 kofta_mcov_max_hits = 0,
+               kofta_mcov_max_factor = 0;
+    u8 kofta_mcov_debug = 0;
+    if (q->mcov_depth > kofta_mcov_max_depth) {
+      kofta_mcov_debug = 1;
+      kofta_mcov_max_depth = q->mcov_depth;
+    }
+    if (q->mcov_hits > kofta_mcov_max_hits) {
+      kofta_mcov_debug = 1;
+      kofta_mcov_max_hits = q->mcov_hits;
+    }
+    if (q->mcov_depth * q->mcov_hits > kofta_mcov_max_factor) {
+      kofta_mcov_debug = 1;
+      kofta_mcov_max_factor = q->mcov_depth * q->mcov_hits;
+    }
+    if (kofta_mcov_debug)
+      kofta_debug("%u,%u\n", q->mcov_depth, q->mcov_hits);
+
+  #endif
+
   // MAB
   if(use_mab)
   {
@@ -3475,7 +3498,8 @@ static void pivot_inputs(char **argv)
         use_name += 6;
       else
         use_name = rsl;
-      nfn = alloc_printf("%s/queue/id:%06u,orig:%s", out_dir, id, use_name);
+      nfn = alloc_printf("%s/queue/id:%06u,ts:%llu,orig:%s", out_dir, id,
+                         get_cur_time(), use_name);
       argnfn = alloc_printf("%s/queue_info/queue/id:%06u,orig:%s", out_dir, id, use_name);
 
 #else
@@ -3646,8 +3670,8 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault, int arg
 
 #ifndef SIMPLE_FILES
 
-    fn = alloc_printf("%s/queue/id:%06u,%s", out_dir, queued_paths,
-                      describe_op(hnb));
+    fn = alloc_printf("%s/queue/id:%06u,ts:%llu,%s", out_dir, queued_paths,
+                      get_cur_time(), describe_op(hnb));
 
 #else
 
@@ -5348,14 +5372,6 @@ EXP_ST u8 common_fuzz_stuff(char **argv, u8 *out_buf, u32 len)
     cur_skipped_paths++;
     return 1;
   }
-
-#ifdef KOFTA_DEBUG
-
-  kofta_debug("%u,%u\n",
-              kofta_mcov_depth(),
-              kofta_mcov->unique_hits);
-
-#endif
 
   /* This handles FAULT_ERROR for us: */
 
